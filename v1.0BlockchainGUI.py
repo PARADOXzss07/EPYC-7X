@@ -6,9 +6,12 @@ from flask import Flask, jsonify, request, render_template
 from uuid import uuid4
 from urllib.parse import urlparse
 import requests
-from cryptography.hazmat.backends import default_backend
 import tkinter as tk
 from tkinter import messagebox
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.primitives.serialization import PublicFormat, Encoding
 
 class Block:
     def __init__(self, index: int, previous_hash: str, timestamp: float, transactions: List[dict], nonce: int = 0):
@@ -170,6 +173,57 @@ class Blockchain:
         return False
 
 
+class Wallet:
+    def __init__(self):
+        self.private_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048,
+            backend=default_backend()
+        )
+        self.public_key = self.private_key.public_key()
+
+    def get_public_key(self):
+        return self.public_key.public_bytes(
+            Encoding.PEM,
+            PublicFormat.SubjectPublicKeyInfo
+        ).decode()
+
+    def sign_transaction(self, transaction_data):
+        """
+        Signs a transaction data using SHA-256.
+        """
+        transaction_string = json.dumps(transaction_data, sort_keys=True).encode()
+        signature = self.private_key.sign(
+            transaction_string,
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()),
+                salt_length=padding.PSS.MAX_LENGTH
+            ),
+            hashes.SHA256()
+        )
+        return signature
+
+    def verify_transaction(self, transaction_data, signature, public_key):
+        """
+        Verifies the integrity of a transaction using SHA-256.
+        """
+        transaction_string = json.dumps(transaction_data, sort_keys=True).encode()
+        public_key_obj = rsa.RSAPublicKey.from_pem(public_key.encode())
+        try:
+            public_key_obj.verify(
+                signature,
+                transaction_string,
+                padding.PSS(
+                    mgf=padding.MGF1(hashes.SHA256()),
+                    salt_length=padding.PSS.MAX_LENGTH
+                ),
+                hashes.SHA256()
+            )
+            return True
+        except (ValueError, cryptography.exceptions.InvalidSignature):
+            return False
+
+
 # Instantiate the Flask Node
 app = Flask(__name__)
 
@@ -186,9 +240,9 @@ wallet = Wallet()
 class BlockchainGUI:
     def __init__(self, master):
         self.master = master
-        master.title("Blockchain GUI")
+        master.title("EPYC-7X Blockchain GUI")
 
-        self.label = tk.Label(master, text="Blockchain Information")
+        self.label = tk.Label(master, text="EPYC-7X Blockchain Information")
         self.label.pack()
 
         self.chain_button = tk.Button(master, text="View Chain", command=self.view_chain)
@@ -214,7 +268,7 @@ class BlockchainGUI:
         if response.status_code == 200:
             chain = response.json()['chain']
             chain_str = "\n".join([f"Block {block['index']} - Hash: {block['previous_hash']}" for block in chain])
-            messagebox.showinfo("Blockchain Chain", chain_str)
+            messagebox.showinfo("EPYC-7X Blockchain", f"Chain Length: {len(chain)}\n\n{chain_str}")
         else:
             messagebox.showerror("Error", "Failed to retrieve blockchain.")
 
@@ -222,15 +276,19 @@ class BlockchainGUI:
         response = requests.get('http://localhost:5000/mine_block')
         if response.status_code == 200:
             message = response.json()['message']
-            messagebox.showinfo("Mine Block", message)
+            messagebox.showinfo("Mining Block", message)
         else:
             messagebox.showerror("Error", "Failed to mine block.")
 
     def add_transaction(self):
-        recipient = "Recipient Address"
-        amount = 1.0  # Example amount
-        response = requests.post('http://localhost:5000/add_transaction', json={'recipient': recipient, 'amount': amount})
-        if response.status_code == 201:
+        recipient = "recipient_address"  # Replace with actual recipient address
+        amount = 1  # Replace with actual amount
+        response = requests.post('http://localhost:5000/add_transaction', json={
+            'sender_wallet': wallet.get_public_key(),
+            'recipient': recipient,
+            'amount': amount
+        })
+        if response.status_code == 200:
             message = response.json()['message']
             messagebox.showinfo("Add Transaction", message)
         else:
@@ -240,14 +298,14 @@ class BlockchainGUI:
         response = requests.get('http://localhost:5000/is_valid')
         if response.status_code == 200:
             message = response.json()['message']
-            messagebox.showinfo("Blockchain Validity", message)
+            messagebox.showinfo("Validity Check", message)
         else:
-            messagebox.showerror("Error", "Failed to check blockchain validity.")
+            messagebox.showerror("Error", "Failed to check validity.")
 
     def connect_node(self):
-        node_address = "http://newnodeaddress.com"  # Example node address
-        response = requests.post('http://localhost:5000/connect_node', json={'node': node_address})
-        if response.status_code == 201:
+        node_address = "node_address"  # Replace with actual node address
+        response = requests.post('http://localhost:5000/connect_node', json={'node_address': node_address})
+        if response.status_code == 200:
             message = response.json()['message']
             messagebox.showinfo("Connect Node", message)
         else:
