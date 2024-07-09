@@ -1,5 +1,5 @@
 # EPYC-7X
-A python and C++ based Crypto currency. Developed by ChatGPT.
+A C++ based Crypto currency. Developed by ChatGPT.
 
 This is really just a side project that I "built" using ChatGPT, not for anything serious.
 
