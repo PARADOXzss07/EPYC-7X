@@ -202,3 +202,111 @@ public:
 
     void add_block(Block& block) {
         if (block.has_valid_transactions(wallets)) {
+            block.mine_block(difficulty);
+            chain.push_back(block);
+            pending_transactions.clear();
+        } else {
+            cout << "Block contains invalid transactions" << endl;
+        }
+    }
+
+    const Block& get_previous_block() const {
+        return chain.back();
+    }
+
+    const vector<Transaction>& get_pending_transactions() const {
+        return pending_transactions;
+    }
+
+    bool is_chain_valid() const {
+        for (size_t i = 1; i < chain.size(); ++i) {
+            const Block& current_block = chain[i];
+            const Block& previous_block = chain[i - 1];
+
+            if (current_block.hash != current_block.calculate_hash()) {
+                return false;
+            }
+            if (current_block.previous_hash != previous_block.hash) {
+                return false;
+            }
+            if (!current_block.has_valid_transactions(wallets)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    void print_chain() const {
+        for (const auto& block : chain) {
+            cout << "Block #" << block.index << " [Hash: " << block.hash << ", Previous Hash: " << block.previous_hash << ", Nonce: " << block.nonce << "]" << endl;
+            for (const auto& txn : block.transactions) {
+                cout << "  Transaction: " << txn.sender << " -> " << txn.recipient << ": " << fixed << setprecision(2) << txn.amount << endl;
+            }
+        }
+    }
+
+    vector<Block> get_chain() const {
+        return chain;
+    }
+};
+
+// Crow routes
+int main() {
+    Blockchain epyc_7x_chain;
+
+    crow::SimpleApp app;
+
+    CROW_ROUTE(app, "/")
+    ([]() {
+        return crow::mustache::load("index.html").render();
+    });
+
+    CROW_ROUTE(app, "/create_wallet")
+    ([&epyc_7x_chain]() {
+        auto& wallet = epyc_7x_chain.create_wallet();
+        return crow::response(200, crow::json::wvalue{{"public_key", wallet.public_key}});
+    });
+
+    CROW_ROUTE(app, "/add_transaction").methods("POST"_method)
+    ([&epyc_7x_chain](const crow::request& req) {
+        auto json = crow::json::load(req.body);
+        if (!json) {
+            return crow::response(400, "Invalid JSON");
+        }
+
+        string sender = json["sender"].s();
+        string recipient = json["recipient"].s();
+        double amount = json["amount"].d();
+        string signature = json["signature"].s();
+
+        epyc_7x_chain.add_transaction(sender, recipient, amount, signature);
+        return crow::response(200, crow::json::wvalue{{"message", "Transaction added"}});
+    });
+
+    CROW_ROUTE(app, "/chain")
+    ([&epyc_7x_chain]() {
+        vector<crow::json::wvalue> chain_json;
+        for (const auto& block : epyc_7x_chain.get_chain()) {
+            crow::json::wvalue block_json;
+            block_json["index"] = block.index;
+            block_json["previous_hash"] = block.previous_hash;
+            block_json["timestamp"] = block.timestamp;
+            block_json["hash"] = block.hash;
+            block_json["nonce"] = block.nonce;
+
+            vector<crow::json::wvalue> transactions_json;
+            for (const auto& txn : block.transactions) {
+                transactions_json.push_back(crow::json::wvalue{
+                    {"sender", txn.sender},
+                    {"recipient", txn.recipient},
+                    {"amount", txn.amount},
+                    {"signature", txn.signature}});
+            }
+            block_json["transactions"] = transactions_json;
+            chain_json.push_back(block_json);
+        }
+        return crow::json::wvalue{{"chain", chain_json}};
+    });
+
+    app.port(8080).multithreaded().run();
+}
